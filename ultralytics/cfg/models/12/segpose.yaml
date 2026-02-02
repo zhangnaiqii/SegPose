@@ -45,4 +45,4 @@ head:
   - [[-1, 8], 1, Concat, [1]] # cat head P5
   - [-1, 2, C3k2, [1024, True]] # 20 (P5/32-large)
 
-  - [[14, 17, 20], 1, SegmentPose, [nc, 32, 256, [17, 3]]]
+  - [[14, 17, 20], 1, SegmentPose, [nc, 32, 256, [5, 3]]]
