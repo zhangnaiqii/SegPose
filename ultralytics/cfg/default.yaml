@@ -109,7 +109,7 @@ grad_balance: # (str) gradient balance method class name, e.g. GradNormBalancer
 grad_balance_alpha: 1.5 # (float) GradNorm alpha
 grad_balance_lr: 0.025 # (float) GradNorm weight lr
 grad_balance_groups: segpose3 # (str) segpose2 or segpose3
-grad_balance_shared: [14,17,20] # (str) all|body|backbone|head
+grad_balance_shared: [8] # (str) all|body|backbone|head
 grad_balance_interval: 4 # (int) update interval (steps)
 grad_balance_warmup: 400 # (int) warmup steps before balancing
 hsv_h: 0.015 # (float) HSV hue augmentation fraction

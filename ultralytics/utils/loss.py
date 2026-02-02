@@ -671,8 +671,8 @@ class v8SegPoseLoss:
         else:
             raise ValueError(f"v8SegPoseLoss expects preds=(feats, masks, proto, kpts) or (y,(...)), got {type(preds)}")
 
-        seg_loss_bs, seg_items = self.seg((feats, mc, proto), batch)   # (4,) * bs, (4,)
-        pose_loss_bs, pose_items = self.pose((feats, kpt), batch)      # (5,) * bs, (5,)
+        seg_loss_bs, seg_items = self.seg((feats, mc, proto), batch)  # (4,) * bs, (4,)
+        pose_loss_bs, pose_items = self.pose((feats, kpt), batch)  # (5,) * bs, (5,)
 
         # 组合为 6 维：box, seg, pose, kobj, cls, dfl
         out_bs = seg_loss_bs.new_zeros(6)
@@ -697,55 +697,47 @@ class v8SegPoseLoss:
 
         balancer = getattr(self.model, "grad_balancer", None)
         shared_params = getattr(self.model, "grad_balance_shared_params", None)
+
+        # [修改] 启用细粒度分组逻辑，拆分 Box 和 Cls 冲突
         if balancer is not None and shared_params:
-            group = getattr(self.model, "grad_balance_groups", "segpose2")
-            if group == "segpose2":
-                task_losses = {
-                    "seg": out_bs[0] + out_bs[1] + out_bs[4] + out_bs[5],
-                    "pose": out_bs[2] + out_bs[3],
-                }
-                weights = balancer(task_losses, shared_params)
-                seg_w = weights.get("seg") if weights else None
-                pose_w = weights.get("pose") if weights else None
-                if seg_w is not None:
-                    out_bs[0] *= seg_w
-                    out_bs[1] *= seg_w
-                    out_bs[4] *= seg_w
-                    out_bs[5] *= seg_w
-                    out_it[0] *= seg_w.detach()
-                    out_it[1] *= seg_w.detach()
-                    out_it[4] *= seg_w.detach()
-                    out_it[5] *= seg_w.detach()
-                if pose_w is not None:
-                    out_bs[2] *= pose_w
-                    out_bs[3] *= pose_w
-                    out_it[2] *= pose_w.detach()
-                    out_it[3] *= pose_w.detach()
-            elif group == "segpose3":
-                task_losses = {
-                    "det": out_bs[0] + out_bs[4] + out_bs[5],
-                    "seg": out_bs[1],
-                    "pose": out_bs[2] + out_bs[3],
-                }
-                weights = balancer(task_losses, shared_params)
-                det_w = weights.get("det") if weights else None
-                seg_w = weights.get("seg") if weights else None
-                pose_w = weights.get("pose") if weights else None
-                if det_w is not None:
-                    out_bs[0] *= det_w
-                    out_bs[4] *= det_w
-                    out_bs[5] *= det_w
-                    out_it[0] *= det_w.detach()
-                    out_it[4] *= det_w.detach()
-                    out_it[5] *= det_w.detach()
-                if seg_w is not None:
-                    out_bs[1] *= seg_w
-                    out_it[1] *= seg_w.detach()
-                if pose_w is not None:
-                    out_bs[2] *= pose_w
-                    out_bs[3] *= pose_w
-                    out_it[2] *= pose_w.detach()
-                    out_it[3] *= pose_w.detach()
+            # 定义 4 个细粒度任务组
+            task_losses = {
+                "box": out_bs[0] + out_bs[5],  # Box Regression + DFL
+                "cls": out_bs[4],  # Classification
+                "seg": out_bs[1],  # Instance Segmentation
+                "pose": out_bs[2] + out_bs[3],  # Keypoint Regression + Objectness
+            }
+
+            # 计算平衡权重
+            weights = balancer.update(task_losses, shared_params)
+
+            # 只有当 weights 返回非空字典时才应用权重（注意：DAGR 默认可能返回全 1）
+            # 如果 DAGR.update 返回的是全 1 字典，这里的乘法不会改变数值，但逻辑是正确的
+            if weights:
+                w_box = weights.get("box", 1.0)
+                w_cls = weights.get("cls", 1.0)
+                w_seg = weights.get("seg", 1.0)
+                w_pose = weights.get("pose", 1.0)
+
+                # Box Group
+                out_bs[0] *= w_box
+                out_bs[5] *= w_box
+                out_it[0] *= w_box if isinstance(w_box, float) else w_box.detach()
+                out_it[5] *= w_box if isinstance(w_box, float) else w_box.detach()
+
+                # Cls Group
+                out_bs[4] *= w_cls
+                out_it[4] *= w_cls if isinstance(w_cls, float) else w_cls.detach()
+
+                # Seg Group
+                out_bs[1] *= w_seg
+                out_it[1] *= w_seg if isinstance(w_seg, float) else w_seg.detach()
+
+                # Pose Group
+                out_bs[2] *= w_pose
+                out_bs[3] *= w_pose
+                out_it[2] *= w_pose if isinstance(w_pose, float) else w_pose.detach()
+                out_it[3] *= w_pose if isinstance(w_pose, float) else w_pose.detach()
 
         return out_bs, out_it
 

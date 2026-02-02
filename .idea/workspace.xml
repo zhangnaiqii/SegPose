@@ -5,17 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c4bc17fc-9d24-40c7-9d74-d1f0647a53e3" name="更改" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/SegPose.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/rgb.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/train.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ultralytics/cfg/default.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/default.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/models/12/segpose.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/models/12/segpose.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/DAGR.py" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/DAGR.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/rgb.py" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/utils/gradbanlance/rgb.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/内参.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/ultralytics/utils/loss.py" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/utils/loss.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -155,6 +150,7 @@
       <option name="presentableId" value="Default" />
       <updated>1769922858131</updated>
       <workItem from="1769922861945" duration="33045000" />
+      <workItem from="1770002983452" duration="8703000" />
     </task>
     <servers />
   </component>
@@ -164,6 +160,6 @@
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/SegPose$grad_conflict.coverage" NAME="grad_conflict 覆盖结果" MODIFIED="1769962613751" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/SegPose$build_od_bib.coverage" NAME="build_od_bib 覆盖结果" MODIFIED="1769936854334" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="D:/downloads" />
-    <SUITE FILE_PATH="coverage/SegPose$train.coverage" NAME="train 覆盖结果" MODIFIED="1769953930560" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/SegPose$train.coverage" NAME="train 覆盖结果" MODIFIED="1770009753657" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

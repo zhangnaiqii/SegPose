@@ -1,4 +1,4 @@
-# ultralytics/utils/gradbalance/DAGR.py
+# ultralytics/utils/gradbanlance/DAGR.py
 from __future__ import annotations
 
 import math
@@ -13,23 +13,7 @@ from . import GradientBalancer, register_grad_balancer
 class DAGRBalancer(GradientBalancer):
     """
     Density-Aware Analytic Gradient Harmonization (DA-AGH)
-    implemented as a drop-in replacement for the original RGBBalancer interface.
-
-    这是“覆盖 shared grads 的手术刀”，不是 loss-weighting。
-    正确调用顺序（单卡 / DDP 都适用）：
-      1) forward 得到 task_losses（每个任务一个标量 loss，保留计算图）
-      2) bal.update(task_losses, shared_params=shared_params)      # 必须在 backward 之前
-      3) total_loss.backward()                                     # 正常 backward
-      4) scaler.unscale_(optimizer)
-      5) bal.apply_after_unscale(shared_params=shared_params)      # 覆盖 shared grads（DDP 下内部 all_reduce v）
-      6) clip_grad / scaler.step / scaler.update
-
-    DA-AGH 核心：
-      - 计算每个任务在 shared-parameter 上的梯度 g_i；
-      - 用梯度密度度量 GDM 得到密度感知权重 rho_i；
-      - 用 rho_i 计算加权共识方向 d*；
-      - 动态计算冲突插值系数 beta，对梯度进行“旋转协调”；
-      - 最终方向 v 经过幅值恢复后写回。
+    修复版：解决了 Interval 期间旧梯度残留导致训练崩溃的问题。
     """
 
     def __init__(
@@ -37,7 +21,7 @@ class DAGRBalancer(GradientBalancer):
             task_names: list[str] | None = None,
             interval: int = 1,
             warmup: int = 0,
-            # ---- legacy RGB args (kept for backward compatibility; unused by DA-AGH) ----
+            # ---- legacy RGB args ----
             alpha: float = 0.5,
             lr: float = 0.1,
             mu: float = 0.9,
@@ -50,12 +34,12 @@ class DAGRBalancer(GradientBalancer):
             lock_shared_params: bool = True,
             ddp_sync_v: bool = True,
             # ---- DA-AGH args ----
-            gamma: float = 0.5,  # 密度敏感度（保留参数接口）
-            beta_base: float = 0.8,  # 插值刚性（越大越向共识方向靠拢）
-            quantile: float = 0.75,  # 幅值恢复分位数（0~1）
-            use_abs_cos: bool = True,  # 是否使用 |cos|
-            aggregate: Literal["mean", "density_weighted"] = "mean",  # 最终聚合方式
-            use_ema_consensus: bool = False,  # 可选：对 d* 做 EMA
+            gamma: float = 0.5,
+            beta_base: float = 0.8,
+            quantile: float = 0.75,
+            use_abs_cos: bool = True,
+            aggregate: Literal["mean", "density_weighted"] = "mean",
+            use_ema_consensus: bool = False,
     ) -> None:
         super().__init__(task_names=task_names, interval=interval, warmup=warmup)
 
@@ -91,38 +75,23 @@ class DAGRBalancer(GradientBalancer):
         self.use_ema_consensus = bool(use_ema_consensus)
 
         # caches
-        self._dt: torch.Tensor | None = None  # optional EMA consensus
-        self._v: torch.Tensor | None = None  # latest shared update direction
-        self._splits: list[int] | None = None  # per-param numel splits
+        self._dt: torch.Tensor | None = None
+        self._v: torch.Tensor | None = None
+        self._splits: list[int] | None = None
 
         # engineering safety
         self._shared_params: list[torch.Tensor] | None = None
         self._shared_id: list[int] | None = None
 
     def compute_density_weight(self, G: torch.Tensor) -> torch.Tensor:
-        """
-        计算密度感知权重 (Gradient Density Metric, GDM)。
-        逻辑：
-        1. Density = L1 / (L2 * sqrt(D))。
-           - 稀疏任务 (Sparse): Density -> 0
-           - 稠密任务 (Dense): Density -> 1
-        2. 我们希望保护稀疏任务，权重应与密度负相关。
-        """
         T, D = G.shape
         if D == 0:
             return torch.ones(T, device=G.device) / T
 
-        # 1. 计算 GDM 密度
         g_l1 = torch.linalg.norm(G, ord=1, dim=1)
         g_l2 = torch.linalg.norm(G, ord=2, dim=1).clamp_min(1e-8)
-        # density 取值范围约为 [0, 1]
         density = g_l1 / (g_l2 * math.sqrt(D))
-
-        # 2. 转换为权重：稀疏优先 (Sparse-First)
-        # 使用 (1 - density) 使得低密度任务获得高权重
         raw_weights = (1.0 - density).clamp_min(1e-6)
-
-        # 3. 归一化
         rho_weights = raw_weights / raw_weights.sum()
         return rho_weights
 
@@ -132,7 +101,8 @@ class DAGRBalancer(GradientBalancer):
             shared_params: Iterable[torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """
-        DAGR 核心更新逻辑
+        RGB 核心更新逻辑 (已修复 Interval 缓存污染问题)
+        必须在 total_loss.backward() 之前调用。
         """
         self.step += 1
         if not task_losses:
@@ -144,45 +114,55 @@ class DAGRBalancer(GradientBalancer):
         else:
             names = [n for n in self.task_names if n in task_losses]
 
+        device = next(iter(task_losses.values())).device
+        dtype = next(iter(task_losses.values())).dtype
+
         if not names:
-            any_loss = next(iter(task_losses.values()))
-            return {k: torch.ones((), device=any_loss.device, dtype=any_loss.dtype) for k in task_losses.keys()}
+            return {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
 
         # ---- build / lock shared param list ----
         shared_in = [p for p in shared_params if getattr(p, "requires_grad", False)]
         if not shared_in:
-            any_loss = next(iter(task_losses.values()))
-            return {k: torch.ones((), device=any_loss.device, dtype=any_loss.dtype) for k in task_losses.keys()}
+            return {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
 
         if self.lock_shared_params:
             if self._shared_params is None:
                 self._shared_params = list(shared_in)
                 self._shared_id = [int(p.data_ptr()) for p in self._shared_params]
-                # [FIXED] 必须在这里赋值 shared，否则第一次运行会报 UnboundLocalError
-                shared = self._shared_params
             else:
-                if len(shared_in) != len(self._shared_params):
+                cur = list(shared_in)
+                cur_id = [int(p.data_ptr()) for p in cur]
+                # 简单校验，如果变了就不做处理防止报错
+                if len(cur_id) != len(self._shared_id):
                     self._shared_params = list(shared_in)
-                shared = self._shared_params
+            shared = self._shared_params
         else:
             shared = shared_in
 
-        device = next(iter(task_losses.values())).device
-        dtype = next(iter(task_losses.values())).dtype
+        # ================= [FIX START] =================
+        # 修复逻辑：在不计算梯度的步骤（Warmup 或 Interval 跳过时），
+        # 必须显式清空 _v，防止 apply_after_unscale 使用旧的梯度方向覆盖当前梯度。
 
-        # ---- warmup / interval check ----
+        # 1. Warmup 检查
         if self.step <= self.warmup:
             self._v = None
             self._splits = None
             self._last_weights = {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
-            if self.use_ema_consensus:
-                self._update_dt(names, task_losses, shared)
+            # 即使在 warmup，也可以选择性更新 EMA 方向 dt，这里保持简单略过
             return self._last_weights
 
-        if (self.step - 1) % self.interval != 0 and self._last_weights is not None:
-            return self._last_weights
+        # 2. Interval 检查
+        if (self.step - 1) % self.interval != 0:
+            # 关键修复：跳过计算时，必须清空缓存的 v
+            self._v = None
+            self._splits = None
+            if self._last_weights is not None:
+                return self._last_weights
+            else:
+                return {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+        # ================= [FIX END] =================
 
-        # ---- compute per-task gradients ----
+        # ---- compute per-task gradients on shared params (requires graph alive) ----
         g_list: list[torch.Tensor] = []
         for n in names:
             grads = torch.autograd.grad(
@@ -192,78 +172,120 @@ class DAGRBalancer(GradientBalancer):
                 create_graph=False,
                 allow_unused=True,
             )
-            flat = self._flatten_grads(shared, grads, device=device)
-            if not torch.isfinite(flat).all():
+            flat = self._flatten_grads(shared, grads, device=device)  # float32 flat
+            gn = torch.linalg.norm(flat).item()
+            if not math.isfinite(gn) or gn <= self.eps:
                 continue
             g_list.append(flat)
 
         if not g_list:
-            return {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+            self._v = None
+            self._splits = None
+            self._last_weights = {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+            return self._last_weights
 
-        # Shape: (T, D)
-        G = torch.stack(g_list)
+        G = torch.stack(g_list, dim=0)  # [T, D] float32
+        t = int(G.shape[0])
 
-        # 1. 计算密度权重
-        rho_weights = self.compute_density_weight(G)  # (T,)
+        # 单任务旁路：无需 RGB
+        if t < 2:
+            self._v = G[0].detach()
+            self._splits = [int(p.numel()) for p in shared]
+            self._last_weights = {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+            return self._last_weights
 
-        # 2. 计算共识方向 d_star
-        G_normalized = torch.nn.functional.normalize(G, p=2, dim=1, eps=1e-8)
-        d_star = (rho_weights.view(-1, 1) * G_normalized).sum(dim=0)
-        d_star_norm = torch.linalg.norm(d_star)
+        # ---- baseline sum gradient (shared params) ----
+        g_sum = G.sum(dim=0)  # [D]
+        base_mag = torch.linalg.norm(g_sum).clamp_min(self.eps)
 
-        if d_star_norm <= self.eps:
-            d_star = G_normalized.mean(dim=0)
-            d_star = torch.nn.functional.normalize(d_star, p=2, dim=0, eps=1e-8)
+        # ---- magnitude + direction weights (down-weight noisy/small task grads) ----
+        g_norm = torch.linalg.norm(G, dim=1).clamp_min(self.eps)  # [T]
+        w_task = (g_norm / g_norm.sum().clamp_min(self.eps)).detach()  # [T]
+
+        # ---- normalize gradients to unit vectors ----
+        Gbar = G / g_norm[:, None]  # [T, D]
+
+        # ---- update EMA consensus direction d_t (weighted) ----
+        y = (w_task[:, None] * Gbar).sum(dim=0)
+        y = y / torch.linalg.norm(y).clamp_min(self.eps)
+        if self._dt is None or self._dt.numel() != y.numel() or self._dt.device != y.device:
+            self._dt = y.detach()
         else:
-            d_star = d_star / d_star_norm
+            self._dt = (self.mu * self._dt + (1.0 - self.mu) * y).detach()
+            self._dt = self._dt / torch.linalg.norm(self._dt).clamp_min(self.eps)
 
-        # EMA Consensus Logic
-        if self.use_ema_consensus:
-            if self._dt is None or self._dt.numel() != d_star.numel():
-                self._dt = d_star.detach()
+        dt = self._dt
+
+        # ---- build orthogonal directions w_i in span(g_i, d_t) ----
+        W = []
+        for i in range(t):
+            gi = Gbar[i]
+            proj = torch.dot(dt, gi)
+            wi = dt - proj * gi
+            wi_norm = torch.linalg.norm(wi)
+            if wi_norm <= self.eps or not torch.isfinite(wi_norm):
+                # fallback if parallel
+                wi = torch.zeros_like(gi)
             else:
-                self._dt = (self.mu * self._dt + (1.0 - self.mu) * d_star).detach()
-                self._dt = torch.nn.functional.normalize(self._dt, p=2, dim=0, eps=1e-8)
-            d_ref = self._dt
-        else:
-            d_ref = d_star
+                wi = wi / wi_norm.clamp_min(self.eps)
+            W.append(wi)
+        W = torch.stack(W, dim=0)  # [T, D]
 
-        # 3. 动态计算 Beta 并旋转
-        # cos_sim in [-1, 1]
-        cos_sim = torch.mv(G_normalized, d_ref)
+        # ---- optimize rotation angles alpha_i ----
+        alphas = torch.zeros((t,), device=device, dtype=torch.float32, requires_grad=True)
+        inner_steps = max(int(self.steps), 1)
 
-        # 修正: 线性映射，冲突越大(cos=-1) beta越大(1.0)，正交(cos=0) beta中等(0.5)，一致(cos=1) beta最小(0.0)
-        beta = self.beta_base * 0.5 * (1.0 - cos_sim).view(-1, 1)
+        for _ in range(inner_steps):
+            R = torch.cos(alphas)[:, None] * Gbar + torch.sin(alphas)[:, None] * W
+            R = R / torch.linalg.norm(R, dim=1, keepdim=True).clamp_min(self.eps)
 
-        # 旋转公式: g_harm = (1-beta)*g + beta*|g|*d_ref
-        G_mags = torch.linalg.norm(G, dim=1, keepdim=True)
-        G_harm = (1.0 - beta) * G + beta * G_mags * d_ref.view(1, -1)
+            cosmat = R @ R.t()
+            iu = torch.triu_indices(t, t, offset=1, device=device)
+            cos_ij = cosmat[iu[0], iu[1]]
+            conflict = ((1.0 - cos_ij) * 0.5).mean()
 
-        # 4. 幅值恢复与聚合
-        target_mag = self._compute_target_magnitude(G_mags.squeeze(1))
+            prox = ((R - Gbar).pow(2).sum(dim=1) * 0.25).mean()
+            obj = conflict + self.lam * prox
 
-        if self.aggregate == "density_weighted":
-            v_final = (rho_weights.view(-1, 1) * G_harm).sum(dim=0)
-        else:
-            v_final = G_harm.mean(dim=0)
+            (grad_alpha,) = torch.autograd.grad(obj, (alphas,), retain_graph=False, create_graph=False)
+            with torch.no_grad():
+                alphas -= self.alpha_lr * grad_alpha
+                alphas.clamp_(self.alpha_min, self.alpha_max)
+            alphas.requires_grad_(True)
 
-        v_norm = torch.linalg.norm(v_final)
-        if v_norm > self.eps:
-            v_final = v_final / v_norm * target_mag
+        # ---- final shared update direction: conflict-gated blend with baseline ----
+        with torch.no_grad():
+            R = torch.cos(alphas)[:, None] * Gbar + torch.sin(alphas)[:, None] * W
+            R = R / torch.linalg.norm(R, dim=1, keepdim=True).clamp_min(self.eps)
 
-        # Cache for apply_after_unscale
-        self._v = v_final
-        self._splits = []
-        for p in shared:
-            self._splits.append(p.numel())
+            # final conflict (0..1)
+            cosmat = R @ R.t()
+            iu = torch.triu_indices(t, t, offset=1, device=device)
+            cos_ij = cosmat[iu[0], iu[1]]
+            conflict_final = ((1.0 - cos_ij) * 0.5).mean().clamp(0.0, 1.0)
 
-        return {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+            # weighted direction
+            v_dir = (w_task[:, None] * R).sum(dim=0)
+            v_dir = v_dir / torch.linalg.norm(v_dir).clamp_min(self.eps)
+
+            # RGB proposal with baseline magnitude
+            v_rgb = v_dir * base_mag
+
+            # gate: only intervene when conflict is non-trivial
+            tau = 0.25  # 经验阈值：冲突小于 tau 时几乎等价基线
+            beta = (conflict_final / tau).clamp(0.0, 1.0)
+
+            v_mix = (1.0 - beta) * g_sum + beta * v_rgb
+            v_mix_norm = torch.linalg.norm(v_mix).clamp_min(self.eps)
+            v = v_mix / v_mix_norm * base_mag  # keep step size comparable to baseline
+
+            self._v = v.detach()
+            self._splits = [int(p.numel()) for p in shared]
+
+        self._last_weights = {k: torch.ones((), device=device, dtype=dtype) for k in task_losses.keys()}
+        return self._last_weights
 
     def apply_after_unscale(self, shared_params: Iterable[torch.Tensor]) -> None:
-        """
-        必须在 scaler.unscale_(optimizer) 之后、clip_grad/optimizer.step 之前调用。
-        覆盖 shared grads 为缓存的 v；DDP 下会先同步 v 再覆盖。
-        """
         if self._v is None or self._splits is None:
             return
 
@@ -274,10 +296,7 @@ class DAGRBalancer(GradientBalancer):
         if self.lock_shared_params and self._shared_params is not None:
             shared = self._shared_params
             cur_id = [int(p.data_ptr()) for p in shared_in]
-            # 允许顺序一致但对象重建的情况（某些DDP实现），但严格检查数量
             if len(cur_id) != len(self._shared_id):
-                # 这种情况下通常是 shared params 发生了变化，安全起见直接返回不覆盖，
-                # 或者抛出警告。为了不中断训练，这里选择不做操作。
                 return
         else:
             shared = shared_in
@@ -288,27 +307,21 @@ class DAGRBalancer(GradientBalancer):
 
         v = self._v.to(device=shared[0].device, dtype=torch.float32)
 
-        # ---- DDP sync ----
         if self.ddp_sync_v and torch.distributed.is_available() and torch.distributed.is_initialized():
             torch.distributed.all_reduce(v, op=torch.distributed.ReduceOp.SUM)
             world = torch.distributed.get_world_size()
             if world > 1:
                 v.div_(float(world))
 
-        # ---- write back to grads ----
         offset = 0
         for p, n in zip(shared, splits):
             piece = v[offset: offset + n].view_as(p)
             offset += n
-
             if p.grad is None:
                 p.grad = torch.zeros_like(p, dtype=p.dtype, device=p.device)
-
             piece_cast = piece.to(dtype=p.grad.dtype, device=p.grad.device)
             p.grad.detach_()
             p.grad.copy_(piece_cast)
-
-    # ----------------------- helpers -----------------------
 
     def _flatten_grads(
             self,
@@ -325,18 +338,13 @@ class DAGRBalancer(GradientBalancer):
         return torch.cat(flat, dim=0)
 
     def _compute_target_magnitude(self, mags: torch.Tensor) -> torch.Tensor:
-        """
-        mags: [T] float32.
-        """
         if math.isnan(self.quantile):
             return self._legacy_target_magnitude(mags)
-
         q = float(self.quantile)
         if q <= 0.0:
             return mags.min().clamp_min(self.eps)
         if q >= 1.0:
             return mags.max().clamp_min(self.eps)
-
         target = torch.quantile(mags, q).clamp_min(self.eps)
         if not torch.isfinite(target):
             return self._legacy_target_magnitude(mags)
@@ -359,9 +367,6 @@ class DAGRBalancer(GradientBalancer):
             self._dt = self._dt / torch.linalg.norm(self._dt).clamp_min(self.eps)
 
     def _update_dt(self, names: list[str], task_losses: dict[str, torch.Tensor], shared: list[torch.Tensor]) -> None:
-        """
-        Warmup helper for EMA consensus.
-        """
         g_list = []
         device = next(iter(task_losses.values())).device
         for n in names:
@@ -384,10 +389,7 @@ class DAGRBalancer(GradientBalancer):
         G = torch.stack(g_list, dim=0)
         g_norm = torch.linalg.norm(G, dim=1).clamp_min(self.eps)
         G_unit = G / g_norm[:, None]
-
-        # Use unified density weight calculation
         rho = self.compute_density_weight(G)
         d_star = (rho[:, None] * G_unit).sum(dim=0)
         d_star = d_star / torch.linalg.norm(d_star).clamp_min(self.eps)
-
         self._update_dt_from_direction(d_star)
