@@ -1,12 +1,12 @@
 from ultralytics import YOLO
 
-model = YOLO('runs/segment/coco7/weights/best.pt')
+model = YOLO('runs/segment/baseline/weights/best.pt')
 
 
 
 def main():
     model.val(
-        data='ultralytics/cfg/datasets/coco.yaml',
+        data='ultralytics/cfg/datasets/straw.yaml',
         save=False,
     )
 

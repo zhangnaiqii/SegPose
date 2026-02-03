@@ -204,12 +204,61 @@ def _resolve_data_dict(data_yaml_path: str):
                 if k in d and isinstance(d[k], str) and not os.path.isabs(d[k]):
                     d[k] = os.path.join(base, d[k])
         return d
+class PatchedSegPoseLoss:
+    """
+    本地修复版 SegPose Loss，用于梯度冲突分析。
+    使用 torch.stack 替代原版 loss.py 中的 inplace assignment，确保梯度计算图不中断。
+    """
+    def __init__(self, model):
+        self.model = model
+        # 动态导入以确保环境兼容性
+        from ultralytics.utils.loss import v8SegmentationLoss, v8PoseLoss
+        self.seg = v8SegmentationLoss(model)
+        self.pose = v8PoseLoss(model)
+
+    def __call__(self, preds, batch):
+        # 兼容 train / val 两种 preds 结构
+        if isinstance(preds, (list, tuple)) and len(preds) == 4:
+            feats, mc, proto, kpt = preds
+        elif isinstance(preds, (list, tuple)) and len(preds) == 2 and isinstance(preds[1], (list, tuple)):
+            inner = preds[1]
+            if len(inner) != 4:
+                raise ValueError(f"v8SegPoseLoss expects preds[1] len=4, got len={len(inner)}")
+            feats, mc, proto, kpt = inner
+        else:
+            raise ValueError(f"v8SegPoseLoss expects preds=(feats, masks, proto, kpts) or (y,(...)), got {type(preds)}")
+
+        # 分别计算 Det/Seg 和 Pose 的 Loss 组件
+        seg_loss_bs, seg_items = self.seg((feats, mc, proto), batch)  # (4,) * bs
+        pose_loss_bs, pose_items = self.pose((feats, kpt), batch)     # (5,) * bs
+
+        # [修复] 使用 torch.stack 保持梯度计算图连接
+        # 组合顺序：box, seg, pose, kobj, cls, dfl
+        loss_vec = torch.stack([
+            seg_loss_bs[0],   # box (from seg branch)
+            seg_loss_bs[1],   # seg
+            pose_loss_bs[1],  # pose (from pose branch)
+            pose_loss_bs[2],  # kobj
+            seg_loss_bs[2],   # cls
+            seg_loss_bs[3]    # dfl
+        ])
+
+        # loss_items 仅用于显示，无需梯度，但为了结构一致也使用 stack
+        loss_items = torch.stack([
+            seg_items[0],
+            seg_items[1],
+            pose_items[1],
+            pose_items[2],
+            seg_items[2],
+            seg_items[3]
+        ])
+
+        return loss_vec, loss_items
 
 
 def main():
     parser = argparse.ArgumentParser()
 
-    # ✅你要求保留的两行默认值
     parser.add_argument("--weights", type=str, default="../runs/segment/straw/weights/best.pt")
     parser.add_argument("--data", type=str, default="ultralytics/cfg/datasets/straw.yaml")
 
@@ -259,14 +308,22 @@ def main():
     model = y.model
     model.to(device)
 
+    # [关键修复 1] 强制解冻所有参数。YOLO 加载时默认是冻结的 (requires_grad=False)
+    # 如果不加这一步，无论 loss 怎么算，输入到 loss 的 preds 本身就不带梯度。
+    for p in model.parameters():
+        p.requires_grad = True
+
     # 关闭任何 grad balance（测 baseline 原始梯度冲突）
     if hasattr(model, "grad_balancer"):
         setattr(model, "grad_balancer", None)
     if hasattr(model, "grad_balance_shared_params"):
         setattr(model, "grad_balance_shared_params", None)
 
-    # 修复 model.args 并补齐 loss 关键超参（供 model(batch) 内部 loss 使用）
+    # 修复 model.args 并补齐 loss 关键超参（供 loss 使用）
     _ensure_model_args_for_loss(model, args.hyp_yaml, args.weights)
+
+    # [关键修复 2] 初始化本地修复版 Loss 计算器
+    criterion = PatchedSegPoseLoss(model)
 
     # 训练态 forward（关键：model(batch) 走训练同路径，不走推理 no_grad）
     model.train()
@@ -296,9 +353,9 @@ def main():
         mode=args.split,
         rect=False,
         stride=stride_val,
-        pad=0.0,                 # 你的 fork 不支持会被过滤
+        pad=0.0,  # 你的 fork 不支持会被过滤
         prefix=f"{args.split}: ",
-        imgsz=int(args.imgsz),    # 你的 fork 不支持会被过滤
+        imgsz=int(args.imgsz),  # 你的 fork 不支持会被过滤
     )
     dataset = _call_with_supported_kwargs(build_yolo_dataset, dataset_kwargs)
 
@@ -313,6 +370,9 @@ def main():
 
     named_params, groups = _build_block_groups(model)
     all_params = [p for _, p in named_params]
+
+    if not all_params:
+        raise RuntimeError("No parameters found with requires_grad=True. Check parameter unfreezing logic.")
 
     # ---- accumulators ----
     stats = {}
@@ -349,27 +409,33 @@ def main():
 
         batch = _move_batch_to_device(batch, device)
 
-        # ✅关键改动：直接走训练同路径，拿到需要反传的 6 维 loss 向量
-        loss_vec, loss_items = model(batch)
+        # 1. 纯前向传播，获取预测结果 (preds)
+        # model.train() 已确保这里会追踪梯度 (如果 params 解冻了)
+        preds = model(batch["img"])
+
+        # 2. 使用本地修复版 Loss 计算，确保 loss_vec 具有 grad_fn
+        loss_vec, loss_items = criterion(preds, batch)
 
         if (not torch.is_tensor(loss_vec)) or loss_vec.numel() != 6:
             raise RuntimeError(
-                f"model(batch) must return a 6-dim loss vector for segpose, got: {type(loss_vec)} shape={getattr(loss_vec, 'shape', None)}"
-            )
-        if not loss_vec.requires_grad:
-            raise RuntimeError(
-                "loss_vec does not require grad. That means your model(batch) path is still under no_grad/inference_mode.\n"
-                "But trainer.py uses model(batch) for backward, so this indicates your environment/script disabled grad globally."
+                f"criterion(preds, batch) must return a 6-dim loss vector, got: {type(loss_vec)} shape={getattr(loss_vec, 'shape', None)}"
             )
 
-        # segpose3 decomposition（与你 loss.py 的 segpose3 定义一致）
-        loss_det = loss_vec[0] + loss_vec[4] + loss_vec[5]      # box + cls + dfl
-        loss_seg = loss_vec[1]                                  # seg
-        loss_pose = loss_vec[2] + loss_vec[3]                   # pose + kobj
+        if not loss_vec.requires_grad:
+            # 如果这里还报错，说明 parameter 解冻失败或者 model forward 里有 no_grad
+            raise RuntimeError(
+                "loss_vec does not require grad. Ensure model parameters are unfreezed and PatchedSegPoseLoss is used."
+            )
+
+        # segpose3 decomposition
+        loss_det = loss_vec[0] + loss_vec[4] + loss_vec[5]  # box + cls + dfl
+        loss_seg = loss_vec[1]  # seg
+        loss_pose = loss_vec[2] + loss_vec[3]  # pose + kobj
 
         grads_det = torch.autograd.grad(loss_det, all_params, retain_graph=True, create_graph=False, allow_unused=True)
         grads_seg = torch.autograd.grad(loss_seg, all_params, retain_graph=True, create_graph=False, allow_unused=True)
-        grads_pose = torch.autograd.grad(loss_pose, all_params, retain_graph=False, create_graph=False, allow_unused=True)
+        grads_pose = torch.autograd.grad(loss_pose, all_params, retain_graph=False, create_graph=False,
+                                         allow_unused=True)
 
         for gname, idxs in groups.items():
             r = _pair_cos_and_stats(grads_det, grads_seg, idxs)
@@ -478,3 +544,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
