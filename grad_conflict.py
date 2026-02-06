@@ -1,12 +1,3 @@
-# grad_conflict.py
-# 目标：加载 baseline 权重，在 val/train 上抽 N 个 batch，按 det/seg/pose 计算各层（按 model.<idx> 分组）梯度冲突，
-# 输出：CSV + PNG（overall_conflict_mean 柱状图，越大越冲突）
-#
-# 运行示例：
-# python grad_conflict.py --weights ../runs/segment/straw/weights/best.pt --data ultralytics/cfg/datasets/straw.yaml --split val --num_batches 50 --batch 4 --save_dir runs/grad_conflict/baseline
-#
-# 可选：如果 checkpoint 没保存完整 args，可用 --hyp_yaml 指定训练时的 args.yaml/hyp.yaml 用于补齐 loss 所需关键超参
-
 import os
 import csv
 import math
@@ -259,14 +250,14 @@ class PatchedSegPoseLoss:
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--weights", type=str, default="../runs/segment/straw/weights/best.pt")
+    parser.add_argument("--weights", type=str, default="./runs/segment/csp/weights/best.pt")
     parser.add_argument("--data", type=str, default="ultralytics/cfg/datasets/straw.yaml")
 
-    parser.add_argument("--hyp_yaml", type=str, default="")
+    parser.add_argument("--hyp_yaml", type=str, default="ultralytics/cfg/default.yaml")
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--split", type=str, default="val")
     parser.add_argument("--num_batches", type=int, default=50)
     parser.add_argument("--save_dir", type=str, default="runs/grad_conflict")
