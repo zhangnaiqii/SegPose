@@ -6,13 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="c4bc17fc-9d24-40c7-9d74-d1f0647a53e3" name="更改" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/grad_conflict.py" beforeDir="false" afterPath="$PROJECT_DIR$/grad_conflict.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/train.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/models/11/yolo11-seg.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/models/11/yolo11-seg.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/models/12/pose.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/models/12/pose.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/models/v10/yolov10n.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/models/v10/yolov10n.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/models/v8/yolov8-seg.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/models/v8/yolov8-seg.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ultralytics/nn/tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/nn/tasks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/datasets/straw-pose.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/datasets/straw-pose.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ultralytics/cfg/default.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/ultralytics/cfg/default.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -71,18 +67,19 @@
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "git-widget-placeholder": "gradBalance",
-    "last_opened_file_path": "Z:/SegPose/SegPose/ultralytics/cfg/models/12",
+    "last_opened_file_path": "Z:/SegPose/SegPose/ultralytics/cfg/datasets",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "settings.editor.selected.configurable": "preferences.general",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="Z:\SegPose\SegPose\ultralytics\cfg\datasets" />
       <recent name="Z:\SegPose\SegPose\ultralytics\cfg\models\12" />
     </key>
   </component>
@@ -239,7 +236,9 @@
       <workItem from="1770181593335" duration="20154000" />
       <workItem from="1770283693426" duration="553000" />
       <workItem from="1770284313566" duration="433000" />
-      <workItem from="1770284751639" duration="19449000" />
+      <workItem from="1770284751639" duration="19792000" />
+      <workItem from="1770342940656" duration="2334000" />
+      <workItem from="1770475674383" duration="12962000" />
     </task>
     <servers />
   </component>
@@ -270,7 +269,7 @@
     <SUITE FILE_PATH="coverage/SegPose$build_od_bib.coverage" NAME="build_od_bib 覆盖结果" MODIFIED="1769936854334" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="D:/downloads" />
     <SUITE FILE_PATH="coverage/SegPose$del.coverage" NAME="del 覆盖结果" MODIFIED="1770102000956" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/SegPose$5.coverage" NAME="梯度均衡5张效果图 覆盖结果" MODIFIED="1770199129820" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/Desktop/蓝莓绘图" />
-    <SUITE FILE_PATH="coverage/SegPose$train.coverage" NAME="train 覆盖结果" MODIFIED="1770341496379" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/SegPose$train.coverage" NAME="train 覆盖结果" MODIFIED="1770509405994" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/SegPose$show_conflict.coverage" NAME="show_conflict 覆盖结果" MODIFIED="1770186854044" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/SegPose$grad_conflict.coverage" NAME="grad_conflict 覆盖结果" MODIFIED="1770235153263" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/SegPose$get_objects_size.coverage" NAME="get_objects_size 覆盖结果" MODIFIED="1770301240585" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/ultralytics/hub" />

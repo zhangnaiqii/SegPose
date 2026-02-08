@@ -12,7 +12,7 @@ data: # (str, optional) path to data file, i.e. coco8.yaml
 epochs: 100 # (int) number of epochs to train for
 time: # (float, optional) max hours to train; overrides epochs if set
 patience: 100 # (int) early stop after N epochs without val improvement
-batch: 16 # (int) batch size; use -1 for AutoBatch
+batch: 64 # (int) batch size; use -1 for AutoBatch
 imgsz: 640 # (int | list) train/val use int (square); predict/export may use [h,w]
 save: True # (bool) save train checkpoints and predict results
 save_period: -1 # (int) save checkpoint every N epochs; disabled if < 1
@@ -29,7 +29,7 @@ seed: 0 # (int) random seed for reproducibility
 deterministic: True # (bool) enable deterministic ops; reproducible but may be slower
 single_cls: False # (bool) treat all classes as a single class
 rect: False # (bool) rectangular batches for train; rectangular batching for val when mode='val'
-cos_lr: True # (bool) cosine learning rate scheduler
+cos_lr: False # (bool) cosine learning rate scheduler
 close_mosaic: 10 # (int) disable mosaic augmentation for final N epochs (0 to keep enabled)
 resume: False # (bool) resume training from last checkpoint in the run dir
 amp: True # (bool) Automatic Mixed Precision (AMP) training; True runs AMP capability check
@@ -62,7 +62,7 @@ source: # (str, optional) path/dir/URL/stream for images or videos; e.g. 'ultral
 vid_stride: 1 # (int) read every Nth frame for video sources
 stream_buffer: False # (bool) True buffers all frames; False keeps the most recent frame for low-latency streams
 visualize: False # (bool) visualize model features (predict) or TP/FP/FN confusion (val)
-augment: False # (bool) apply test-time augmentation during prediction
+augment: True # (bool) apply test-time augmentation during prediction
 agnostic_nms: False # (bool) class-agnostic NMS
 classes: # (int | list[int], optional) filter by class id(s), e.g. 0 or [0,2,3]
 retina_masks: False # (bool) use high-resolution segmentation masks (segment)
@@ -101,7 +101,7 @@ warmup_bias_lr: 0.1 # (float) bias learning rate during warmup
 box: 7.5 # (float) box loss gain
 cls: 0.5 # (float) classification loss gain
 dfl: 1.5 # (float) distribution focal loss gain
-seg: 2.0 # (float) pose loss gain (pose tasks)
+seg: 1.0 # (float) pose loss gain (pose tasks)
 kobj: 2.0 # (float) keypoint objectness loss gain (pose tasks)
 pose: 12.0 # (float) pose loss gain (pose tasks)
 nbs: 64 # (int) nominal batch size used for loss normalization
